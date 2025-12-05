@@ -1,0 +1,215 @@
+Here is the complete, ready-to-deploy CDK project that:
+
+✅ Uses your existing S3 bucket
+✅ Uploads your local files to uploads/ folder
+✔ Automatically triggers a Lambda
+✔ Lambda runs Textract
+✔ Stores the results as JSON in S3 → results/
+
+This is a copy-paste runnable full project.
+
+
+---
+
+📦 Project Structure (create exactly like this)
+
+cdk-textract-project/
+│── app.py
+│── requirements.txt
+│── textract_stack.py
+│── documents/
+│     └── sample.pdf
+└── lambda/
+      └── handler.py
+
+
+---
+
+📌 requirements.txt
+
+aws-cdk-lib
+constructs
+
+Install:
+
+pip install -r requirements.txt
+
+
+---
+
+🟩 app.py
+
+#!/usr/bin/env python3
+import aws_cdk as cdk
+from textract_stack import TextractStack
+
+app = cdk.App()
+TextractStack(app, "TextractStack")
+app.synth()
+
+
+---
+
+🟩 textract_stack.py
+
+(💯 Full CDK stack: imports bucket + upload + lambda + trigger)
+
+from aws_cdk import (
+    Stack,
+    aws_s3 as s3,
+    aws_lambda as _lambda,
+    aws_s3_notifications as s3n,
+    aws_s3_deployment as s3deploy,
+    aws_iam as iam,
+)
+from constructs import Construct
+
+
+class TextractStack(Stack):
+    def __init__(self, scope: Construct, id: str, **kwargs):
+        super().__init__(scope, id, **kwargs)
+
+        # -----------------------------------------------------------
+        # 1. IMPORT EXISTING BUCKET (PUT YOUR BUCKET NAME HERE)
+        # -----------------------------------------------------------
+        bucket = s3.Bucket.from_bucket_name(
+            self,
+            "ExistingBucket",
+            bucket_name="YOUR_BUCKET_NAME_HERE"   # <<<<<<<<<<<<<< CHANGE THIS
+        )
+
+        # -----------------------------------------------------------
+        # 2. UPLOAD LOCAL FILES TO S3
+        # -----------------------------------------------------------
+        s3deploy.BucketDeployment(
+            self,
+            "UploadDocuments",
+            sources=[s3deploy.Source.asset("./documents")],
+            destination_bucket=bucket,
+            destination_key_prefix="uploads"  # uploaded to s3://bucket/uploads/
+        )
+
+        # -----------------------------------------------------------
+        # 3. LAMBDA FUNCTION FOR TEXTRACT
+        # -----------------------------------------------------------
+        textract_fn = _lambda.Function(
+            self,
+            "TextractLambda",
+            runtime=_lambda.Runtime.PYTHON_3_12,
+            handler="handler.handler",
+            code=_lambda.Code.from_asset("lambda")
+        )
+
+        # Allow Lambda full access to read & write bucket
+        bucket.grant_read_write(textract_fn)
+
+        # Allow Lambda to call Textract APIs
+        textract_fn.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=[
+                    "textract:DetectDocumentText",
+                    "textract:AnalyzeDocument",
+                ],
+                resources=["*"]
+            )
+        )
+
+        # -----------------------------------------------------------
+        # 4. TRIGGER LAMBDA WHEN FILE UPLOADED TO uploads/
+        # -----------------------------------------------------------
+        bucket.add_event_notification(
+            s3.EventType.OBJECT_CREATED,
+            s3n.LambdaDestination(textract_fn),
+            s3.NotificationKeyFilter(prefix="uploads/")
+        )
+
+
+---
+
+🟩 lambda/handler.py
+
+(💯 Full Lambda code that runs Textract & stores JSON results)
+
+import boto3
+import json
+import os
+
+s3 = boto3.client("s3")
+textract = boto3.client("textract")
+
+
+def handler(event, context):
+    print("Event:", event)
+
+    # Get S3 object details
+    record = event["Records"][0]
+    bucket_name = record["s3"]["bucket"]["name"]
+    file_key = record["s3"]["object"]["key"]
+
+    print(f"Processing: {bucket_name}/{file_key}")
+
+    # Run Textract (synchronous)
+    response = textract.detect_document_text(
+        Document={
+            "S3Object": {
+                "Bucket": bucket_name,
+                "Name": file_key
+            }
+        }
+    )
+
+    # Convert to JSON
+    json_content = json.dumps(response, indent=2)
+
+    # Save in results/ folder
+    output_key = f"results/{os.path.basename(file_key)}.json"
+
+    s3.put_object(
+        Bucket=bucket_name,
+        Key=output_key,
+        Body=json_content,
+        ContentType="application/json"
+    )
+
+    print(f"Saved results to: {output_key}")
+
+    return {"status": "OK", "saved": output_key}
+
+
+---
+
+🚀 Deployment Steps
+
+1️⃣ Install dependencies
+
+pip install -r requirements.txt
+
+2️⃣ Bootstrap your AWS account (only once)
+
+cdk bootstrap
+
+3️⃣ Deploy
+
+cdk deploy
+
+
+---
+
+🎉 What Happens After Deployment?
+
+✔ CDK uploads your local documents/* → to →
+
+s3://YOUR_BUCKET_NAME/uploads/
+
+✔ Each upload automatically triggers the Lambda
+
+✔ Lambda runs Textract on the file
+
+✔ JSON result saved to:
+
+s3://YOUR_BUCKET_NAME/results/{filename}.json
+
+
+---
+
+If you want async Textract (for big PDFs), tell me and I'll give you the full working version.
