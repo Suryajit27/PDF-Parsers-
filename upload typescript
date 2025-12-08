@@ -1,41 +1,47 @@
-import { APIGatewayProxyHandler, APIGatewayProxyResult } from "aws-lambda";
-import { extractRequestBody } from "./common/htt-helpers"; 
-import { createHttpResponse, errorHttpResponseHandler } from "./common/http-response-handler";
+import { APIGatewayProxyEvent, APIGatewayProxyHandler, APIGatewayProxyResult } from "aws-lambda";
+import { createHttpResponse, errorHttpResponseHandler, extractEventBody } from "../common/http.helpers.js";
 import { S3 } from "aws-sdk";
 
 const s3 = new S3();
 
 export const uploadFile: APIGatewayProxyHandler = async (
-  event
+  event: APIGatewayProxyEvent
 ): Promise<APIGatewayProxyResult> => {
+
   try {
-    let body: any = extractRequestBody(event);
+    let body: any = extractEventBody(event);
 
     if (!body || !body.file || !body.filename) {
-      return createHttpResponse(event, 400, JSON.stringify({ 
-        message: "file and filename are required" 
-      }));
+      return createHttpResponse(
+        event,
+        400,
+        JSON.stringify({
+          message: "file and filename are required"
+        })
+      );
     }
 
-    // Decode Base64 PDF
-    const pdfBytes = Buffer.from(body.file, "base64");
+    // Decode the base64 file
+    const fileBuffer = Buffer.from(body.file, "base64");
 
-    // Upload to S3
-    await s3
-      .putObject({
-        Bucket: process.env.BUCKET_NAME!,
-        Key: body.filename,
-        Body: pdfBytes,
-        ContentType: "application/pdf",
+    // Upload into S3
+    await s3.putObject({
+      Bucket: process.env.BUCKET_NAME!,
+      Key: body.filename,
+      Body: fileBuffer,
+      ContentType: "application/pdf"
+    }).promise();
+
+    return createHttpResponse(
+      event,
+      200,
+      JSON.stringify({
+        message: "File uploaded successfully"
       })
-      .promise();
-
-    return createHttpResponse(event, 200, JSON.stringify({ 
-      message: "File uploaded successfully" 
-    }));
+    );
 
   } catch (err) {
-    console.error("Upload error:", err);
+    console.log("Unexpected error:", err);
     return errorHttpResponseHandler(event, err);
   }
 };
