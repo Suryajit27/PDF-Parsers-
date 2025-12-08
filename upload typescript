@@ -1,45 +1,62 @@
-import { APIGatewayProxyEvent, APIGatewayProxyHandler, APIGatewayProxyResult } from "aws-lambda";
-import { createHttpResponse, errorHttpResponseHandler, extractEventBody } from "../common/http.helpers.js";
-import { S3 } from "aws-sdk";
+// filepath: serverless/lab/upload-file.ts
 
-const s3 = new S3();
+import {
+  APIGatewayProxyEvent,
+  APIGatewayProxyHandler,
+  APIGatewayProxyResult,
+} from "aws-lambda";
 
-export const uploadFile: APIGatewayProxyHandler = async (
+import {
+  createHttpResponse,
+  errorHttpResponseHandler,
+  extractEventBody,
+} from "../common/http.helpers.js";
+
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+
+const s3 = new S3Client({});
+
+// -----------------------------------------
+//   HARD-CODE YOUR S3 BUCKET NAME HERE
+// -----------------------------------------
+const BUCKET_NAME = "<YOUR_BUCKET_NAME>";
+
+export const uploadFileHandler: APIGatewayProxyHandler = async (
   event: APIGatewayProxyEvent
 ): Promise<APIGatewayProxyResult> => {
-
   try {
-    let body: any = extractEventBody(event);
+    const body: any = extractEventBody(event);
 
-    if (!body || !body.file || !body.filename) {
+    if (!body || !body.fileName || !body.fileContent) {
       return createHttpResponse(
         event,
         400,
         JSON.stringify({
-          message: "file and filename are required"
+          message: "fileName and fileContent are required",
         })
       );
     }
 
-    // Decode the base64 file
-    const fileBuffer = Buffer.from(body.file, "base64");
+    const fileBuffer = Buffer.from(body.fileContent, "base64");
 
-    // Upload into S3
-    await s3.putObject({
-      Bucket: process.env.BUCKET_NAME!,
-      Key: body.filename,
+    const uploadCommand = new PutObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: body.fileName,
       Body: fileBuffer,
-      ContentType: "application/pdf"
-    }).promise();
+      ContentType: "application/pdf",
+    });
+
+    await s3.send(uploadCommand);
 
     return createHttpResponse(
       event,
       200,
       JSON.stringify({
-        message: "File uploaded successfully"
+        message: "PDF uploaded successfully",
+        file: body.fileName,
+        bucket: BUCKET_NAME,
       })
     );
-
   } catch (err) {
     console.log("Unexpected error:", err);
     return errorHttpResponseHandler(event, err);
