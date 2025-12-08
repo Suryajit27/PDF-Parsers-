@@ -1,0 +1,41 @@
+import { APIGatewayProxyHandler, APIGatewayProxyResult } from "aws-lambda";
+import { extractRequestBody } from "./common/htt-helpers"; 
+import { createHttpResponse, errorHttpResponseHandler } from "./common/http-response-handler";
+import { S3 } from "aws-sdk";
+
+const s3 = new S3();
+
+export const uploadFile: APIGatewayProxyHandler = async (
+  event
+): Promise<APIGatewayProxyResult> => {
+  try {
+    let body: any = extractRequestBody(event);
+
+    if (!body || !body.file || !body.filename) {
+      return createHttpResponse(event, 400, JSON.stringify({ 
+        message: "file and filename are required" 
+      }));
+    }
+
+    // Decode Base64 PDF
+    const pdfBytes = Buffer.from(body.file, "base64");
+
+    // Upload to S3
+    await s3
+      .putObject({
+        Bucket: process.env.BUCKET_NAME!,
+        Key: body.filename,
+        Body: pdfBytes,
+        ContentType: "application/pdf",
+      })
+      .promise();
+
+    return createHttpResponse(event, 200, JSON.stringify({ 
+      message: "File uploaded successfully" 
+    }));
+
+  } catch (err) {
+    console.error("Upload error:", err);
+    return errorHttpResponseHandler(event, err);
+  }
+};
